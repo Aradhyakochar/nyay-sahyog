@@ -1,0 +1,138 @@
+.providers-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 30px;
+  margin-top: 30px;
+}
+
+.filters-sidebar {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  height: fit-content;
+  position: sticky;
+  top: 20px;
+}
+
+.filters-sidebar h3 {
+  margin-bottom: 20px;
+  color: #2c3e50;
+}
+
+.providers-content {
+  min-height: 400px;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.view-toggle button {
+  padding: 10px 20px;
+  border: 2px solid #667eea;
+  background: white;
+  color: #667eea;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.view-toggle button:hover {
+  background: #f0f4ff;
+}
+
+.view-toggle button.active {
+  background: #667eea;
+  color: white;
+}
+
+.providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.provider-card {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.provider-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.provider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.provider-header h3 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.provider-role {
+  text-transform: capitalize;
+  color: #667eea;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.provider-specialization {
+  color: #666;
+  font-style: italic;
+  margin-bottom: 15px;
+}
+
+.provider-info {
+  margin-bottom: 15px;
+}
+
+.provider-info > div {
+  margin-bottom: 8px;
+  color: #555;
+}
+
+.provider-bio {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  line-height: 1.5;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+  color: #666;
+  font-size: 1.2rem;
+}
+
+@media (max-width: 968px) {
+  .providers-layout {
+    grid-template-columns: 1fr;
+  }
+  
+  .filters-sidebar {
+    position: static;
+  }
+}
+
