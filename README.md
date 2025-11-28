@@ -1,69 +1,50 @@
-# ⚖️ Nyay Sahyog - Legal Services e-Marketplace
+# ⚖️ Nyay Sahyog - Legal Services Platform
 
-A full-stack web application connecting clients with verified legal service providers.
+A simple full-stack web application connecting clients with legal service providers.
 
 ## 🚀 Quick Start
 
-### Option 1: Automatic Restart (Recommended)
-```powershell
-.\RESTART_ALL.bat
-```
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- npm
 
-### Option 2: Manual Start
+### Setup
 
-**Terminal 1 - Backend:**
-```powershell
-cd backend
-venv\Scripts\activate
-python app.py
-```
+1. **Backend Setup:**
+   ```powershell
+   cd backend
+   python -m venv venv
+   venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-**Terminal 2 - Frontend:**
-```powershell
-cd frontend
-npm run dev
-```
+2. **Frontend Setup:**
+   ```powershell
+   cd frontend
+   npm install
+   ```
 
-**Terminal 3 - Seed Data (First Time):**
-```powershell
-cd backend
-venv\Scripts\activate
-python seed_data.py          # Creates providers, bookings, etc.
-python seed_people.py        # Creates 50 additional client users (optional)
-```
+3. **Start Application:**
+   ```powershell
+   # Option 1: Use the startup script
+   .\START.bat
+   
+   # Option 2: Manual start
+   # Terminal 1 - Backend:
+   cd backend
+   venv\Scripts\activate
+   python app.py
+   
+   # Terminal 2 - Frontend:
+   cd frontend
+   npm run dev
+   ```
 
-## 📋 Setup Checklist
+## 📋 Default Credentials
 
-- [ ] Copy `backend/env.example` to `backend/.env` and configure
-- [ ] Copy `frontend/env.example` to `frontend/.env`
-- [ ] Install backend deps: `pip install -r backend/requirements.txt`
-- [ ] Install frontend deps: `npm install` (in frontend folder)
-- [ ] Run `python seed_data.py` to create test data
-
-## 🎯 Default Credentials
-
-- **Clients:** `client1` to `client5` (password: `password123`)
-- **Advocates:** `advocate1` to `advocate10` (password: `password123`)
-- **Admin:** `admin` (password: `admin123`)
-
-## 📁 Project Structure
-
-See `PROJECT_STRUCTURE.md` for complete file organization.
-
-## 🛠️ Tech Stack
-
-- **Frontend:** React + TypeScript + Vite + Tailwind CSS
-- **Backend:** Flask + SQLAlchemy + JWT
-- **Database:** SQLite (dev) / PostgreSQL (Docker)
-- **Features:** 2FA, OTP, JWT Auth, Google Maps
-
-## 📚 Documentation
-
-- `QUICK_START.md` - Fastest way to get started
-- `ALL_COMMANDS.md` - All commands with file paths
-- `PROJECT_STRUCTURE.md` - File organization flowchart
-- `TROUBLESHOOTING.md` - Common issues & fixes
-- `CHANGES_SUMMARY.md` - Recent enhancements
+- **Admin:** username=`admin`, password=`admin123`
+- **Test Users:** Create via registration
 
 ## 🌐 URLs
 
@@ -71,7 +52,32 @@ See `PROJECT_STRUCTURE.md` for complete file organization.
 - Backend API: http://localhost:5000/api
 - Health Check: http://localhost:5000/api/health
 
+## 🛠️ Tech Stack
+
+- **Frontend:** React + TypeScript + Vite + Tailwind CSS
+- **Backend:** Flask + JWT
+- **Database:** SQLite
+
+## 📁 Project Structure
+
+```
+projectR/
+├── backend/          # Flask API
+│   ├── app.py       # Main application
+│   ├── auth.py      # Authentication routes
+│   ├── providers.py # Provider routes
+│   └── bookings.py  # Booking routes
+├── frontend/         # React application
+└── START.bat        # Startup script
+```
+
+## ✨ Features
+
+- User registration and login
+- Provider listing and search
+- Booking management
+- User profiles
+
 ---
 
 **Ready to use!** 🎉
-

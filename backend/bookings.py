@@ -1,23 +1,14 @@
-"""Booking and messaging routes"""
+"""Booking routes"""
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
-from models import db, User, Provider, Booking, Message, Review
+from db_access import (
+    get_user_by_id, get_provider_by_user_id, get_provider_by_id,
+    create_booking, get_booking_by_id, get_bookings_by_client_id,
+    get_bookings_by_provider_id, get_all_bookings, update_booking
+)
 from datetime import datetime
-from sqlalchemy import or_, and_
-from sqlalchemy.orm import joinedload
 
 bookings_bp = Blueprint('bookings', __name__)
-
-def admin_required(f):
-    """Decorator to require admin role"""
-    @jwt_required()
-    def decorated_function(*args, **kwargs):
-        claims = get_jwt()
-        if claims.get('role') != 'admin':
-            return jsonify({'error': 'Admin access required'}), 403
-        return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
-    return decorated_function
 
 
 @bookings_bp.route('', methods=['POST'])
@@ -29,12 +20,14 @@ def create_booking():
         user_id = int(user_id_str) if user_id_str else None
         if not user_id:
             return jsonify({'error': 'Invalid user ID in token'}), 401
-        user = User.query.get_or_404(user_id)
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
         
-        print(f"📅 Booking request from user {user_id} ({user.username}, role: {user.role})")
+        print(f"📅 Booking request from user {user_id} ({user['username']}, role: {user['role']})")
         
         # Only clients can create bookings
-        if user.role != 'client':
+        if user['role'] != 'client':
             return jsonify({'error': 'Only clients can create bookings'}), 403
         
         data = request.get_json()
@@ -49,15 +42,15 @@ def create_booking():
             if field not in data:
                 return jsonify({'error': f'{field} is required'}), 400
         
-        provider = User.query.get(data['provider_id'])
+        provider = get_user_by_id(data['provider_id'])
         if not provider:
             return jsonify({'error': 'Provider not found'}), 404
         
-        provider_profile = Provider.query.filter_by(user_id=provider.id).first()
+        provider_profile = get_provider_by_user_id(provider['id'])
         if not provider_profile:
             return jsonify({'error': 'Provider profile not found'}), 404
         
-        if not provider.is_active or not provider_profile.is_active:
+        if not provider.get('is_active', True) or not provider_profile.get('is_active', True):
             return jsonify({'error': 'Provider is not available'}), 400
         
         # Parse booking date - handle multiple formats
@@ -80,32 +73,48 @@ def create_booking():
             return jsonify({'error': f'Invalid booking_date format: {str(e)}. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS)'}), 400
         
         # Create booking
-        booking = Booking(
-            client_id=user_id,
-            provider_id=provider.id,
-            provider_profile_id=provider_profile.id,
-            service_type=data['service_type'],
-            booking_date=booking_date,
-            duration_minutes=data.get('duration_minutes', 60),
-            fee=data['fee'],
-            status='pending',
-            description=data.get('description'),
-            meeting_link=data.get('meeting_link'),
-            location=data.get('location')
-        )
+        booking_data = {
+            'client_id': user_id,
+            'provider_id': provider['id'],
+            'provider_profile_id': provider_profile['id'],
+            'service_type': data['service_type'],
+            'booking_date': booking_date,
+            'duration_minutes': data.get('duration_minutes', 60),
+            'fee': data['fee'],
+            'status': 'pending',
+            'description': data.get('description'),
+            'meeting_link': data.get('meeting_link'),
+            'location': data.get('location')
+        }
+        booking_id = create_booking(booking_data)
+        booking = get_booking_by_id(booking_id)
         
-        db.session.add(booking)
-        db.session.commit()
+        print(f"✅ Booking created successfully: ID {booking_id} for client {user_id} with provider {provider['id']}")
         
-        print(f"✅ Booking created successfully: ID {booking.id} for client {user_id} with provider {provider.id}")
+        # Format booking for response
+        booking_dict = {
+            'id': booking['id'],
+            'client_id': booking['client_id'],
+            'provider_id': booking['provider_id'],
+            'provider_profile_id': booking['provider_profile_id'],
+            'service_type': booking.get('service_type'),
+            'booking_date': booking['booking_date'].isoformat() if isinstance(booking['booking_date'], datetime) else booking.get('booking_date'),
+            'duration_minutes': booking.get('duration_minutes', 60),
+            'fee': float(booking.get('fee', 0.0)),
+            'status': booking.get('status', 'pending'),
+            'description': booking.get('description'),
+            'meeting_link': booking.get('meeting_link'),
+            'location': booking.get('location'),
+            'created_at': booking.get('created_at').isoformat() if booking.get('created_at') else None,
+            'updated_at': booking.get('updated_at').isoformat() if booking.get('updated_at') else None
+        }
         
         return jsonify({
             'message': 'Booking created successfully',
-            'booking': booking.to_dict()
+            'booking': booking_dict
         }), 201
         
     except Exception as e:
-        db.session.rollback()
         print(f"❌ Booking creation error: {str(e)}")
         import traceback
         traceback.print_exc()
@@ -121,40 +130,60 @@ def get_bookings():
         user_id = int(user_id_str) if user_id_str else None
         if not user_id:
             return jsonify({'error': 'Invalid user ID in token'}), 401
-        user = User.query.get_or_404(user_id)
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
         claims = get_jwt()
         role = claims.get('role')
         
-        # Query based on role with eager loading for performance
+        # Query based on role
         if role == 'client':
-            bookings = Booking.query.options(
-                joinedload(Booking.client),
-                joinedload(Booking.provider),
-                joinedload(Booking.provider_profile)
-            ).filter_by(client_id=user_id).order_by(Booking.booking_date.desc()).all()
+            bookings = get_bookings_by_client_id(user_id)
         elif role in ['advocate', 'mediator', 'arbitrator', 'notary', 'document_writer']:
-            bookings = Booking.query.options(
-                joinedload(Booking.client),
-                joinedload(Booking.provider),
-                joinedload(Booking.provider_profile)
-            ).filter_by(provider_id=user_id).order_by(Booking.booking_date.desc()).all()
-        elif role == 'admin':
-            # Admin can see all bookings
-            bookings = Booking.query.options(
-                joinedload(Booking.client),
-                joinedload(Booking.provider),
-                joinedload(Booking.provider_profile)
-            ).order_by(Booking.booking_date.desc()).all()
+            bookings = get_bookings_by_provider_id(user_id)
         else:
             return jsonify({'error': 'Invalid role'}), 403
         
-        # Convert to dict efficiently
+        # Format bookings with user/provider info
         bookings_data = []
         for b in bookings:
             try:
-                bookings_data.append(b.to_dict())
+                client = get_user_by_id(b['client_id'])
+                provider = get_user_by_id(b['provider_id'])
+                provider_profile = get_provider_by_id(b['provider_profile_id'])
+                
+                booking_dict = {
+                    'id': b['id'],
+                    'client_id': b['client_id'],
+                    'client': {
+                        'id': client['id'],
+                        'username': client['username'],
+                        'email': client['email'],
+                        'full_name': client['full_name']
+                    } if client else None,
+                    'provider_id': b['provider_id'],
+                    'provider': {
+                        'id': provider['id'],
+                        'username': provider['username'],
+                        'email': provider['email'],
+                        'full_name': provider['full_name']
+                    } if provider else None,
+                    'provider_profile_id': b['provider_profile_id'],
+                    'service_type': b.get('service_type'),
+                    'booking_date': b['booking_date'].isoformat() if isinstance(b['booking_date'], datetime) else b.get('booking_date'),
+                    'duration_minutes': b.get('duration_minutes', 60),
+                    'fee': float(b.get('fee', 0.0)),
+                    'status': b.get('status', 'pending'),
+                    'description': b.get('description'),
+                    'meeting_link': b.get('meeting_link'),
+                    'location': b.get('location'),
+                    'created_at': b.get('created_at').isoformat() if b.get('created_at') else None,
+                    'updated_at': b.get('updated_at').isoformat() if b.get('updated_at') else None
+                }
+                bookings_data.append(booking_dict)
             except Exception as e:
-                print(f"Error converting booking {b.id} to dict: {e}")
+                print(f"Error converting booking {b.get('id')} to dict: {e}")
                 continue
         
         return jsonify({
@@ -174,17 +203,55 @@ def get_booking(booking_id):
         user_id = int(user_id_str) if user_id_str else None
         if not user_id:
             return jsonify({'error': 'Invalid user ID in token'}), 401
-        user = User.query.get_or_404(user_id)
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
         claims = get_jwt()
         role = claims.get('role')
         
-        booking = Booking.query.get_or_404(booking_id)
+        booking = get_booking_by_id(booking_id)
+        if not booking:
+            return jsonify({'error': 'Booking not found'}), 404
         
         # Check access
-        if role != 'admin' and booking.client_id != user_id and booking.provider_id != user_id:
+        if booking['client_id'] != user_id and booking['provider_id'] != user_id:
             return jsonify({'error': 'Access denied'}), 403
         
-        return jsonify(booking.to_dict()), 200
+        # Format booking for response
+        client = get_user_by_id(booking['client_id'])
+        provider = get_user_by_id(booking['provider_id'])
+        
+        booking_dict = {
+            'id': booking['id'],
+            'client_id': booking['client_id'],
+            'client': {
+                'id': client['id'],
+                'username': client['username'],
+                'email': client['email'],
+                'full_name': client['full_name']
+            } if client else None,
+            'provider_id': booking['provider_id'],
+            'provider': {
+                'id': provider['id'],
+                'username': provider['username'],
+                'email': provider['email'],
+                'full_name': provider['full_name']
+            } if provider else None,
+            'provider_profile_id': booking['provider_profile_id'],
+            'service_type': booking.get('service_type'),
+            'booking_date': booking['booking_date'].isoformat() if isinstance(booking['booking_date'], datetime) else booking.get('booking_date'),
+            'duration_minutes': booking.get('duration_minutes', 60),
+            'fee': float(booking.get('fee', 0.0)),
+            'status': booking.get('status', 'pending'),
+            'description': booking.get('description'),
+            'meeting_link': booking.get('meeting_link'),
+            'location': booking.get('location'),
+            'created_at': booking.get('created_at').isoformat() if booking.get('created_at') else None,
+            'updated_at': booking.get('updated_at').isoformat() if booking.get('updated_at') else None
+        }
+        
+        return jsonify(booking_dict), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -199,208 +266,86 @@ def update_booking(booking_id):
         user_id = int(user_id_str) if user_id_str else None
         if not user_id:
             return jsonify({'error': 'Invalid user ID in token'}), 401
-        user = User.query.get_or_404(user_id)
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
         claims = get_jwt()
         role = claims.get('role')
         
-        booking = Booking.query.get_or_404(booking_id)
+        booking = get_booking_by_id(booking_id)
+        if not booking:
+            return jsonify({'error': 'Booking not found'}), 404
         
-        # Check access - provider or admin can update status
-        if role != 'admin' and booking.provider_id != user_id:
-            return jsonify({'error': 'Only provider or admin can update booking'}), 403
+        # Check access - provider can update status
+        if booking['provider_id'] != user_id:
+            return jsonify({'error': 'Only provider can update booking'}), 403
         
         data = request.get_json()
+        update_data = {}
         
         # Update status
         if 'status' in data:
             valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
             if data['status'] not in valid_statuses:
                 return jsonify({'error': 'Invalid status'}), 400
-            booking.status = data['status']
+            update_data['status'] = data['status']
         
         # Update other fields
         if 'meeting_link' in data:
-            booking.meeting_link = data['meeting_link']
+            update_data['meeting_link'] = data['meeting_link']
         if 'location' in data:
-            booking.location = data['location']
+            update_data['location'] = data['location']
         if 'booking_date' in data:
             try:
-                booking.booking_date = datetime.fromisoformat(data['booking_date'].replace('Z', '+00:00'))
+                update_data['booking_date'] = datetime.fromisoformat(data['booking_date'].replace('Z', '+00:00'))
             except:
                 return jsonify({'error': 'Invalid booking_date format'}), 400
         
-        booking.updated_at = datetime.utcnow()
-        db.session.commit()
+        if update_data:
+            update_booking(booking_id, update_data)
+            booking = get_booking_by_id(booking_id)
+        
+        # Format booking for response
+        client = get_user_by_id(booking['client_id'])
+        provider = get_user_by_id(booking['provider_id'])
+        
+        booking_dict = {
+            'id': booking['id'],
+            'client_id': booking['client_id'],
+            'client': {
+                'id': client['id'],
+                'username': client['username'],
+                'email': client['email'],
+                'full_name': client['full_name']
+            } if client else None,
+            'provider_id': booking['provider_id'],
+            'provider': {
+                'id': provider['id'],
+                'username': provider['username'],
+                'email': provider['email'],
+                'full_name': provider['full_name']
+            } if provider else None,
+            'provider_profile_id': booking['provider_profile_id'],
+            'service_type': booking.get('service_type'),
+            'booking_date': booking['booking_date'].isoformat() if isinstance(booking['booking_date'], datetime) else booking.get('booking_date'),
+            'duration_minutes': booking.get('duration_minutes', 60),
+            'fee': float(booking.get('fee', 0.0)),
+            'status': booking.get('status', 'pending'),
+            'description': booking.get('description'),
+            'meeting_link': booking.get('meeting_link'),
+            'location': booking.get('location'),
+            'created_at': booking.get('created_at').isoformat() if booking.get('created_at') else None,
+            'updated_at': booking.get('updated_at').isoformat() if booking.get('updated_at') else None
+        }
         
         return jsonify({
             'message': 'Booking updated successfully',
-            'booking': booking.to_dict()
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@bookings_bp.route('/<int:booking_id>/review', methods=['POST'])
-@jwt_required()
-def create_review(booking_id):
-    """Create a review for a completed booking"""
-    try:
-        user_id_str = get_jwt_identity()
-        user_id = int(user_id_str) if user_id_str else None
-        if not user_id:
-            return jsonify({'error': 'Invalid user ID in token'}), 401
-        booking = Booking.query.get_or_404(booking_id)
-        
-        # Only client can review
-        if booking.client_id != user_id:
-            return jsonify({'error': 'Only the client can review this booking'}), 403
-        
-        # Booking must be completed
-        if booking.status != 'completed':
-            return jsonify({'error': 'Can only review completed bookings'}), 400
-        
-        # Check if review already exists
-        existing_review = Review.query.filter_by(booking_id=booking_id).first()
-        if existing_review:
-            return jsonify({'error': 'Review already exists for this booking'}), 400
-        
-        data = request.get_json()
-        
-        if not data.get('rating') or not (1 <= data['rating'] <= 5):
-            return jsonify({'error': 'Rating must be between 1 and 5'}), 400
-        
-        # Create review
-        review = Review(
-            booking_id=booking_id,
-            provider_id=booking.provider_profile_id,
-            client_id=user_id,
-            rating=data['rating'],
-            comment=data.get('comment')
-        )
-        
-        db.session.add(review)
-        
-        # Update provider rating
-        provider = Provider.query.get(booking.provider_profile_id)
-        reviews = Review.query.filter_by(provider_id=provider.id).all()
-        total_rating = sum(r.rating for r in reviews) + review.rating
-        provider.total_reviews = len(reviews) + 1
-        provider.rating = total_rating / provider.total_reviews
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Review created successfully',
-            'review': review.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@bookings_bp.route('/messages', methods=['GET'])
-@jwt_required()
-def get_messages():
-    """Get messages for current user"""
-    try:
-        user_id_str = get_jwt_identity()
-        user_id = int(user_id_str) if user_id_str else None
-        if not user_id:
-            return jsonify({'error': 'Invalid user ID in token'}), 401
-        booking_id = request.args.get('booking_id', type=int)
-        
-        query = Message.query.filter(
-            or_(Message.sender_id == user_id, Message.receiver_id == user_id)
-        )
-        
-        if booking_id:
-            query = query.filter_by(booking_id=booking_id)
-        
-        messages = query.order_by(Message.created_at.asc()).all()
-        
-        return jsonify({
-            'messages': [m.to_dict() for m in messages]
+            'booking': booking_dict
         }), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@bookings_bp.route('/messages', methods=['POST'])
-@jwt_required()
-def send_message():
-    """Send a message"""
-    try:
-        user_id_str = get_jwt_identity()
-        user_id = int(user_id_str) if user_id_str else None
-        if not user_id:
-            return jsonify({'error': 'Invalid user ID in token'}), 401
-        data = request.get_json()
-        
-        required_fields = ['receiver_id', 'content']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'{field} is required'}), 400
-        
-        # Verify receiver exists
-        receiver = User.query.get_or_404(data['receiver_id'])
-        
-        # If booking_id provided, verify user has access to that booking
-        if data.get('booking_id'):
-            booking = Booking.query.get_or_404(data['booking_id'])
-            if booking.client_id != user_id and booking.provider_id != user_id:
-                return jsonify({'error': 'Access denied to this booking'}), 403
-            if booking.client_id != data['receiver_id'] and booking.provider_id != data['receiver_id']:
-                return jsonify({'error': 'Receiver must be part of this booking'}), 400
-        
-        # Create message
-        message = Message(
-            booking_id=data.get('booking_id'),
-            sender_id=user_id,
-            receiver_id=data['receiver_id'],
-            subject=data.get('subject'),
-            content=data['content']
-        )
-        
-        db.session.add(message)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Message sent successfully',
-            'message_data': message.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@bookings_bp.route('/messages/<int:message_id>/read', methods=['PUT'])
-@jwt_required()
-def mark_message_read(message_id):
-    """Mark a message as read"""
-    try:
-        user_id_str = get_jwt_identity()
-        user_id = int(user_id_str) if user_id_str else None
-        if not user_id:
-            return jsonify({'error': 'Invalid user ID in token'}), 401
-        message = Message.query.get_or_404(message_id)
-        
-        if message.receiver_id != user_id:
-            return jsonify({'error': 'Access denied'}), 403
-        
-        message.is_read = True
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Message marked as read',
-            'message_data': message.to_dict()
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
 
